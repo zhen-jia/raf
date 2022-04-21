@@ -74,6 +74,7 @@ class GradientPartitioner : public ExprMutator {
   }
 
   Expr VisitExpr_(const LetNode* node) {
+    int64_t threshold = 10e5;
     scopes_.emplace_back(new LetList);
     auto scope = scopes_.back().get();
     Expr body;
@@ -85,7 +86,13 @@ class GradientPartitioner : public ExprMutator {
       if (grads_.count(curr_var) > 0) {
         // The curr_var is a complete gradient.
         CHECK(!grads_[curr_var].defined());
-        SliceGrad(scope, curr_var, value, opt_level_);
+        int64_t n = common::shape_utils::NElement(curr_var);
+        if (n < threshold) {
+          grads_.Set(curr_var, curr_var);
+          scope->Push(curr_var, value);
+        } else {
+          SliceGrad(scope, curr_var, value, opt_level_);
+        }
       } else if (curr_var == grad_tuple_var_) {
         // Replace gradients with sliced ones.
         Array<Expr> fields;
