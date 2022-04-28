@@ -144,11 +144,14 @@ def from_pytorch(model, shape_dict, model_file=None, hash_file=None):
             except:
                 raise RuntimeError("Loading scripted model failed")
         else:
-            scripted_model = trace_model(model, input_type, input_shape)
-            scripted_model.eval()
-            scripted_model.save(model_file)
-            with open(hash_file, "w") as hashf:
-                hashf.write(model_hash)
+            comm = dist.get_communicator()
+            if comm.local_rank == 0:
+                scripted_model = trace_model(model, input_type, input_shape)
+                scripted_model.eval()
+                scripted_model.save(model_file)
+                with open(hash_file, "w") as hashf:
+                    hashf.write(model_hash)
+            assert False
     else:
         scripted_model = trace_model(model, input_type, input_shape)
     shape_list = [(input_name, (input_shape, input_type))]
