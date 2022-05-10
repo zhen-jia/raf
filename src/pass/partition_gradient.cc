@@ -51,11 +51,30 @@ class GradientPartitioner : public ExprMutator {
       grads = var_to_expr[grad_tuple_var_];
     }
     auto grad_fields = Downcast<Tuple>(grads)->fields;
+    int64_t curr_group_size = 0;
+    Var last_small_grad;
     for (auto field : grad_fields) {
       CHECK(field->IsInstance<VarNode>())
           << "Expected a var in the gradient tuple, but got " << field->GetTypeKey();
-      grads_.Set(Downcast<Var>(field), Expr());
+      auto grad_var = Downcast<Var>(field);
+      grads_.Set(grad_var, Expr());
+
+      int64_t n = common::shape_utils::GetElementNum(grad_var);
+      if (n < small_pram_threshold_) {
+        small_grads_.insert(grad_var);
+        last_small_grad = grad_var;
+        if (curr_group_size + n > bucket_size_) {
+          issue_allreduce_.insert(grad_var);
+          curr_group_size = n;
+        } else {
+          curr_group_size += n;
+        }
+      }
     }
+    if (small_grads_.size() && issue_allreduce_.size() == 0) {
+      issue_allreduce_.insert(last_small_grad);
+    }
+
     last_all_reduce_ = Downcast<Var>(grad_fields[grad_fields.size() - 1]);
 
     scopes_.emplace_back(new LetList);
@@ -85,7 +104,14 @@ class GradientPartitioner : public ExprMutator {
       if (grads_.count(curr_var) > 0) {
         // The curr_var is a complete gradient.
         CHECK(!grads_[curr_var].defined());
-        SliceGrad(scope, curr_var, value, opt_level_);
+        //int64_t n = common::shape_utils::GetElementNum(curr_var);
+        if (small_grads_.count(curr_var)) {
+          //grads_.Set(curr_var, curr_var);
+          //scope->Push(curr_var, value);
+          GroupAllduce(scope, curr_var, value);
+        } else {
+          SliceGrad(scope, curr_var, value, opt_level_);
+        }
       } else if (curr_var == grad_tuple_var_) {
         // Replace gradients with sliced ones.
         Array<Expr> fields;
@@ -312,6 +338,58 @@ class GradientPartitioner : public ExprMutator {
     }
   }
 
+  void GroupAllduce(LetList* scope, const Var& var, const Expr& value) {
+    static const Op& allreduce_op = Op::Get("raf.op._allreduce");
+
+    Expr allreduce_expr, divide_expr;
+    std::tie(allreduce_expr, divide_expr) = GetAllReduceExpr(value);
+     if (!allreduce_expr.defined()) {
+      // If this is not an AllReduce, then the gradient was generated locally and
+      grads_.Set(var, var);
+      scope->Push(var, value);
+      return;
+     }
+     Var grad_var;
+     auto first_arg = Downcast<Var>(GetNArg(allreduce_expr, 0));
+     Constant compute = Downcast<Constant>(GetNArg(allreduce_expr, 1));
+     auto arg_tuple = Downcast<Tuple>(var_to_expr_[first_arg]);
+     CHECK_EQ(arg_tuple->fields.size(), 1U) << "Not supported yet";
+     
+	 // FIXME(comaniac): This happens when gradients are zeros and are folded.
+     // However, we should eliminate zero gradients to reduce communication overheads.
+     if (arg_tuple->fields[0]->IsInstance<ConstantNode>()) {
+       grad_var = scope->Push(TupleGetItem(first_arg, 0));
+       grad_var->checked_type_ = arg_tuple->fields[0]->checked_type();
+     } else {
+       grad_var = Downcast<Var>(arg_tuple->fields[0]);
+     }
+     allreduce_inputs_.push_back(grad_var);
+     allreduce_vars_.push_back(var);
+     small_divide_expr_.push_back(divide_expr);
+     if (issue_allreduce_.count(var)) {
+       auto inputs = scope->Push(Tuple(allreduce_inputs_));
+       auto allreduce_out = scope->Push(Call(allreduce_op, {inputs, compute})); 
+	   for (int i = 0; i < allreduce_vars_.size(); ++i) {
+         auto update_var = scope->Push(TupleGetItem(allreduce_out, i));
+         auto divide_expr = small_divide_expr_[i];
+         if (divide_expr.defined()) {
+           // update the divide op args
+           auto divide_call = divide_expr.as<CallNode>();
+           update_var = scope->Push(Call(divide_call->op, {update_var, divide_call->args[1]}));
+         }
+         grads_.Set(allreduce_vars_[i], update_var);
+       }
+       allreduce_vars_ = {};
+       allreduce_inputs_ = {};
+       small_divide_expr_ = {};
+     } 
+	 //else {
+     //  allreduce_inputs_.push_back(grad_var);
+     //  allreduce_vars_.push_back(var);
+     //  small_divide_expr_.push_back(divide_expr);
+     //}
+  }
+
   void IssueGroupScatter(LetList* scope, Constant compute) {
     static const Op& group_reduce_scatter = Op::Get("raf.op._group_reduce_scatter");
     auto inputs = scope->Push(Tuple(scatter_input_));
@@ -342,6 +420,8 @@ class GradientPartitioner : public ExprMutator {
   int rank_;
   /*! \brief Mapping from a gradient to a sliced gradient for this rank. */
   Map<Var, Expr> grads_;
+  std::set<Var> small_grads_;
+  std::set<Var> issue_allreduce_;
   /*! \brief The var binding to the gradient tuple. */
   Var grad_tuple_var_;
   /*! \brief Mapping from let-binding var to the expression. */
@@ -358,6 +438,14 @@ class GradientPartitioner : public ExprMutator {
   std::vector<Var> scatter_var_;
   /*! \brief Divide expr after allreduce for NCCL version < 2.10. */
   std::vector<Expr> divide_expr_;
+  /*! \brief The inputs for group scatter. */
+  std::vector<Expr> allreduce_inputs_;
+  /*! \brief The group scatter var. */
+  std::vector<Var> allreduce_vars_;
+  /*! \brief Divide expr after allreduce for small param grad if NCCL version < 2.10. */
+  std::vector<Expr> small_divide_expr_;
+  //int64_t small_pram_threshold_ = 10e5;
+  int64_t small_pram_threshold_ = 0;
 };
 
 }  // namespace partition_gradient

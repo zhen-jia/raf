@@ -35,6 +35,7 @@ class NCCLAllReduce : public raf::op::OpEnv {
   std::vector<size_t> tuple_sizes;
   DType dtype;
   ncclRedOp_t compute;
+  std::vector<size_t> sizes;
 
   explicit NCCLAllReduce(const CallValues& cv) {
     auto op = ir::Op::Get("raf.op._allreduce");
@@ -69,11 +70,13 @@ class NCCLAllReduce : public raf::op::OpEnv {
       size_t size = BytesCompactTensor(*x);
       tuple_sizes.push_back(size);
       total_size += size;
+      size_t dtype_size = GetSizeInBytes(x->dtype);
+      sizes.push_back(size / dtype_size);
       dtype = x->dtype;
     }
-    if (tv.size() > 1) {
-      RequestWorkspace(&fused_data, cv->device, total_size);
-    }
+    //if (tv.size() > 1) {
+    //  RequestWorkspace(&fused_data, cv->device, total_size);
+    //}
   }
 
  public:
@@ -104,37 +107,19 @@ class NCCLAllReduce : public raf::op::OpEnv {
     if (tv->fields.size() == 1) {
       DLTensor* x = tv->fields[0];
       DLTensor* out = output;
-      dtype_size = GetSizeInBytes(x->dtype);
-      NCCL_CALL(ncclAllReduce(x->data, out->data, total_size / dtype_size, dtype, compute,
-                              nccl_comm, (cudaStream_t)stream));
+      NCCL_CALL(ncclAllReduce(x->data, out->data, sizes[0], dtype, compute, nccl_comm,
+                              (cudaStream_t)stream));
 
     } else {
-      size_t offset = 0;
-      for (int i = 0; i < tv->fields.size(); ++i) {
-        DLTensor* x = tv->fields[i];
-        void* buffer_data_at_offset = reinterpret_cast<uint8_t*>(fused_data) + offset;
-        cudaMemcpyAsync(buffer_data_at_offset, x->data, tuple_sizes[i], cudaMemcpyDeviceToDevice,
-                        (cudaStream_t)stream);
-        offset += tuple_sizes[i];
-        CHECK(dtype_size == 0 || dtype_size == GetSizeInBytes(x->dtype))
-            << "AllReduce requires tensors to be the same type.";
-        dtype_size = GetSizeInBytes(x->dtype);
-        dtype = x->dtype;
-      }
-
-      // Allreduce
-      NCCL_CALL(ncclAllReduce(fused_data, fused_data, total_size / dtype_size, dtype, compute,
-                              nccl_comm, (cudaStream_t)stream));
-      // UnFuse Tensor
       value::TupleValue out = tvm::runtime::Downcast<value::TupleValue>(output);
-      auto& of = out->fields;
-      for (int i = of.size() - 1; i >= 0; --i) {
-        DLTensor* x = of[i];
-        offset -= tuple_sizes[i];
-        void* buffer_data_at_offset = reinterpret_cast<uint8_t*>(fused_data) + offset;
-        cudaMemcpyAsync(x->data, buffer_data_at_offset, tuple_sizes[i], cudaMemcpyDeviceToDevice,
-                        (cudaStream_t)stream);
+      NCCL_CALL(ncclGroupStart());
+      for (int ti = 0; ti < tv->fields.size(); ++ti) {
+        DLTensor* it = tv->fields[ti];
+        DLTensor* ot = out->fields[ti];
+        NCCL_CALL(ncclAllReduce(it->data, ot->data, sizes[ti], dtype, compute, nccl_comm,
+                                (cudaStream_t)stream));
       }
+      NCCL_CALL(ncclGroupEnd());
     }
   }
 

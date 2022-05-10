@@ -107,7 +107,7 @@ SCHEMAS = {
     ],
     "nn.h::pad": [
         Arg(name="x", cxx_type="value::BaseTensorValue"),
-        # [(w1, w2), ..., ]
+# [(w1, w2), ..., ]
         Arg(name="pad_width", cxx_type="std::vector<int64_t>", cxx_normalizer="IntTuple"),
         Arg(name="pad_value", cxx_type="double", cxx_default=0.0),
         Arg(
@@ -547,7 +547,18 @@ SCHEMAS = {
             cxx_normalizer="TensorTuple",
         ),
         Arg(name="dtype", cxx_type="std::string"),
-    ],
+        ],
+    "transform.h::group_cast_inplace": [
+        Arg(
+            name="tensor_list",
+            cxx_type="std::vector<value::BaseTensorValue>",
+            cxx_normalizer="TensorTuple",
+        ),
+        Arg(name="dtype", cxx_type="std::string"),
+        Arg(
+            name="out", cxx_type="std::vector<value::BaseTensorValue>", cxx_normalizer="TensorTuple"
+        ),
+        ],
     "transform.h::strided_slice": [
         Arg(name="x", cxx_type="value::BaseTensorValue"),
         Arg(name="begin", cxx_type="value::Value"),

@@ -165,6 +165,7 @@ OPS = [
     Op(name="cast", schema_name="cast"),
     Op(name="cast_like", schema_name="binary_like"),
     Op(name="group_cast", schema_name="group_cast"),
+    Op(name="group_cast_inplace", schema_name="group_cast_inplace"),
     Op(name="gather", schema_name="gather"),
     Op(name="gather_dx", schema_name="gather_dx"),
     Op(name="gather_nd", schema_name="gather_nd"),

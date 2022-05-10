@@ -718,6 +718,33 @@ HashKey GroupCastHasher(const std::vector<Type>& param_types, const Type& y_type
 RAF_TVM(group_cast, GroupCast, GroupCastArgs, GroupCastSchema2Args, GroupCastSchemaArgNames,
         GroupCastSchema2Attrs, GroupCastHasher, kElemWise);
 
+std::vector<Value> GroupCastInplaceSchema2Args(const GroupCastInplaceArgs* args) {
+  std::vector<Value> ret;
+  for (auto i : args->tensor_list) {
+    ret.push_back(i);
+  }
+  return ret;
+}
+
+std::vector<std::string> GroupCastInplaceSchemaArgNames(const op::CallValues& call) {
+  return {"tensor_list"};
+}
+Attrs GroupCastInplaceSchema2Attrs(const GroupCastInplaceArgs* args) {
+  auto attrs = make_object<CastAttrs>();
+  attrs->dtype = DataType(ir::String2DLDataType(args->dtype));
+  return Attrs(attrs);
+}
+
+HashKey GroupCastInplaceHasher(const std::vector<Type>& param_types, const Type& y_type,
+                        const GroupCastInplaceArgs* args) {
+  HashKey key = GenericHasher<nullptr_t>(param_types, y_type, nullptr);
+  key << ir::String2DLDataType(args->dtype);
+  return key;
+}
+
+RAF_TVM(group_cast_inplace, GroupCastInplace, GroupCastInplaceArgs, GroupCastInplaceSchema2Args,
+        GroupCastInplaceSchemaArgNames, GroupCastInplaceSchema2Attrs, GroupCastInplaceHasher, kElemWise);
+
 std::vector<Value> GatherSchema2Args(const GatherArgs* args) {
   return {args->data, args->indices};
 }

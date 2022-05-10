@@ -444,3 +444,11 @@ def group_cast_compute(attrs, inputs, output_type):
 
 
 _reg.register_injective_schedule("raf.op.tvm.group_cast")
+
+@register_compute("raf.op.tvm.group_cast_inplace")
+def group_cast_inplace_compute(attrs, inputs, output_type):
+    dtype = attrs.dtype
+    return [_topi.cast(item, dtype) for item in inputs]
+
+
+_reg.register_injective_schedule("raf.op.tvm.group_cast_inplace")

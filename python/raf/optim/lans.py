@@ -182,6 +182,14 @@ def with_lans(
                 dcfg = dist.get_config()
                 comm = dist.get_communicator()
                 self.params = {}
+                #threshold = 10e5;
+                threshold = 0;
+                self.not_split =[]
+                def get_nElement(param):
+                    n = 1
+                    for i in param.shape:
+                        n *=i
+                    return n
                 for name, param in self.model.state().items():
                     if param.requires_grad is True:
                         if device is None:
@@ -189,25 +197,35 @@ def with_lans(
                         else:
                             assert device == param.device
                         assert isinstance(param, ndarray), "Only `raf.ndarray` can be optimized!"
-                        # If optimizer status partitioning is enable, then the first axis of
+# If optimizer status partitioning is enable, then the first axis of
                         # variant and weight is partitioned to 1/n. Accordingly, we have to
                         # also keep a param.w (size 1/n) locally.
                         part_shape = param.shape
                         if dcfg.zero_opt_level:
+                            n = get_nElement(param)
                             # Pad and copy a slice of weight.
                             param_nd = param.to(device="cpu")
                             if "float" in param.dtype and param.dtype != "float32":
                                 param_nd = param_nd.to(dtype="float32")
-                            slice_param = split_ndarray_with_padding(param_nd, comm.size)[comm.rank]
-                            param_part = ndarray(
-                                slice_param,
-                                device=param.device,
-                                name=f"{name}.lans_w",
-                                dtype="float32",
-                            )
+                            if n > threshold:
+                                slice_param = split_ndarray_with_padding(param_nd, comm.size)[comm.rank]
+                                param_part = ndarray(
+                                    slice_param,
+                                    device=param.device,
+                                    name=f"{name}.lans_w",
+                                    dtype="float32",
+                                )
+                                part_shape = slice_param.shape
+                            else:
+                                self.not_split.append(param._ndarray__handle)
+                                param_part = ndarray(
+                                    param_nd,
+                                    device=param.device,
+                                    name=f"{name}.lans_w",
+                                    dtype="float32",
+                                )
                             weight = param_part
                             setattr(self, f"{name}.lans_w", weight)
-                            part_shape = slice_param.shape
                         elif "float" in param.dtype and param.dtype != "float32":
                             weight = ndarray(
                                 param.to(dtype="float32"),
@@ -251,8 +269,6 @@ def with_lans(
                         name, p, w, m, v = self.params[param]
                         if "float" not in w.dtype:
                             continue
-                        #if self.dtype != "float32":
-                        #    dxi = _op.cast(dxi, "float32")
 
                         g_list.append(dxi)
                         x_list.append(w)
@@ -262,7 +278,6 @@ def with_lans(
                 
                 if self.dtype != "float32":
                     fp32_g = _op.group_cast(g_list, "float32")
-                    #print("------------", type(fp32_g))
                     g_list = []
                     for i in range(ntensor):
                         g_list.append(fp32_g[i])
@@ -283,19 +298,29 @@ def with_lans(
                 )
 
                 out_idx = 0
+                group_cast_input =[]
+                group_cast_output =[]
+                param_model_list =[]
+                param_name_list = []
                 for i, param in enumerate(inputs):
                     dxi = dxs[i] if len(inputs) > 1 else dxs
                     if param in self.params and has_grad(dxi):
                         name, p, w, m, v = self.params[param]
                         if "float" in w.dtype:
+                            param_model = get_chained_attr(self.model, name.split(".")[:-1])
                             new_w = output_list[out_idx + ntensor]
                             if self.dtype != "float32":
-                                new_w = _op.cast(new_w, self.dtype)
+                                if param in self.not_split:
+                                    group_cast_input.append(new_w)
+                                    group_cast_output.append(p)
+                                    param_model_list.append(param_model)
+                                    param_name_list.append(name.split(".")[-1])
+                                else:
+                                    new_w = _op.cast(new_w, self.dtype)
 
                             next_m = output_list[out_idx + 2 * ntensor]
                             next_v = output_list[out_idx + 3 * ntensor]
-                            param_model = get_chained_attr(self.model, name.split(".")[:-1])
-                            if dcfg.zero_opt_level > 0:
+                            if dcfg.zero_opt_level > 0 and param not in self.not_split:
                                 new_weight = allgather(new_w, axis=0)
                                 # Slice to remove the zero-padding if needed.
                                 if w.shape[0] * comm.size > p.shape[0]:
@@ -303,15 +328,19 @@ def with_lans(
                                         new_weight, [0], [p.shape[0]], [1]
                                     )
                                 next_w = _op.add(new_weight, self.zero, out=p)
+                                trace_mutate_attr(param_model, name.split(".")[-1], next_w)
                             else:
                                 # LANS inplace upates the weight
                                 # So the new  weight is just the input weight
-                                next_w = new_w
+                                trace_mutate_attr(param_model, name.split(".")[-1], new_w)
 
-                            trace_mutate_attr(param_model, name.split(".")[-1], next_w)
                             trace_mutate_attr(self, f"{name}.m", next_m)
                             trace_mutate_attr(self, f"{name}.v", next_v)
                             out_idx += 1
+                if len(group_cast_input):
+                    cast_output = _op.group_cast_inplace(group_cast_input, self.dtype, group_cast_output)
+                    for i in range(len(group_cast_input)):
+                        trace_mutate_attr(param_model_list[i], param_name_list[i], cast_output[i])
                 return y
 
         return LANSWrapper(model)

@@ -993,5 +993,20 @@ Type SizeInfer(const CallValues& value) {
 
 RAF_OP_TYPE("raf.op.size", "Size", SizeInfer);
 
+Type GroupCastInplaceInfer(const CallValues& value) {
+  const auto* args = value->args.as<GroupCastInplaceArgs>();
+  CHECK(args != nullptr);
+  Array<Type> ret;
+  DataType dtype = DataType(ir::String2DLDataType(args->dtype));
+  for (int i = 0; i < args->tensor_list.size(); ++i) {
+    TensorType data = Downcast<TensorType>(GetType(args->tensor_list[i]));
+    ret.push_back(TensorType(data->shape, dtype));
+  }
+  return TupleType(ret);
+}
+
+RAF_OP_TYPE("raf.op.group_cast_inplace", "GroupCastInplace", GroupCastInplaceInfer);
+
+
 }  // namespace op
 }  // namespace raf

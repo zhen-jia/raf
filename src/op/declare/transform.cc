@@ -1125,6 +1125,23 @@ RAF_OP_DECLARE("raf.op.size", [](const CallValues& call) {
   call->device = x->device;
 });
 
+RAF_OP_DECLARE("raf.op.group_cast_inplace",
+               [](const CallValues& call) {
+                 const auto* args = call->args.as<GroupCastInplaceArgs>();
+                 CHECK(args != nullptr);
+                 DLTensor* x = args->out[0];
+
+                 std::vector<TensorValue> ret;
+                 std::string dtype = args->dtype;
+                 for (auto out : args->out) {
+                   TensorValue tv_out = ir::Downcast<TensorValue>(out);
+                   ret.push_back(tv_out);
+                 }
+                 call->device = x->device;
+                 call->out = TupleValue::make(ir::Array<Value>(ret.begin(), ret.end()));
+               })
+    .set_attr<TRAFInplaceUpdate>("TRAFInplaceUpdate", {{2, 0}});
+
 }  // namespace declare
 }  // namespace op
 }  // namespace raf
