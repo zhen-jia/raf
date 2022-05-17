@@ -22,7 +22,7 @@ class DistConfigObj : public ir::Object {
   int zero_opt_level = 0;
   int auto_dp_profiling_start_iter = 2;
   int auto_dp_profiling_end_iter = 4;
-  int64_t group_bucket_size = 5000000000;
+  int64_t group_bucket_size = 500000000;
 
   void VisitAttrs(tvm::AttrVisitor* v) {
     v->Visit("enable_data_parallel", &enable_data_parallel);

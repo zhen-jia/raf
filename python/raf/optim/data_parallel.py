@@ -59,6 +59,9 @@ def with_data_parallel(model):
             mod = record.mod
             seq = RAFSequential(passes)
             mod = seq(mod)
+            #if comm.rank == 0:
+            #    print("mod is ", mod)
+            #assert False
             inputs = _get_func_inputs(record, args, kwargs)
             out = inline(mod["main"], inputs)
             y = out[0]
