@@ -170,8 +170,11 @@ class FrameworkModel(BaseModel):
 
     def train_mode(self, recursive=True):
         self._BaseModel__is_train = True
-        for param in self.__arg_params.values():
-            param.requires_grad = True
+        #for param in self.__arg_params.values():
+        for n, param in self.__arg_params.items():
+            if "masked_bias" not in n:
+                #print(" name is ", n)
+                param.requires_grad = True
 
     def infer_mode(self, recursive=True):
         self._BaseModel__is_train = False
@@ -191,12 +194,20 @@ class FrameworkModel(BaseModel):
         mod = self.__train_mod if self._BaseModel__is_train else self.__infer_mod
         func_inputs = _get_main_func_params(self, args, kwargs, get_handle=False)
         mod["main"] = annotate_main_func_params(mod["main"], func_inputs)
-        requires_grads = [i.requires_grad if isinstance(i, ndarray) else None for i in func_inputs]
+        #print(" in FrameworkModel, func_inputs is ", func_inputs)
+        #for i in func_inputs:
+        #    print(type(i), "------is ndarray", isinstance(i, ndarray))
+        #    if isinstance(i, ndarray):
+        #        print("  --->>requires_grad", i.requires_grad)
+        #requires_grads = [i.requires_grad if isinstance(i, ndarray) else None for i in func_inputs]
+        requires_grads = [i.requires_grad if isinstance(i, ndarray) else False for i in func_inputs]
+        #print("requires_grad is", requires_grads)
         if None in requires_grads:
             requires_grads = []
         named_params = {}
         named_params.update(self.__arg_params)
         named_params.update(self.__aux_params)
+        #print("after requires_grad is", requires_grads)
         return _TraceRecord(
             mod=mod,
             named_params=named_params,

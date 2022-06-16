@@ -72,16 +72,24 @@ def with_autodiff(model):
         @trace
         def forward(self, dy, *args, **kwargs):
             # pylint: disable=protected-access, missing-function-docstring
+            #print("type of model is ", type(self.model))
             record = self.model._internal(*args, **kwargs)
             dy = calc_dy(dy, record)
             mod = record.mod
+            #print("mod  is ", mod)
+            #print("requires_grads", record.requires_grads)
+            #assert False
             passes = [InferType(), AutoDiff(record.requires_grads)]
+            #passes = [InferType(), AutoDiff([])]
             if dist.get_config().enable_data_parallel:
                 # TODO: Refactor AutoDataParallel to let it work on the IR after InlineBackward.
                 passes += [AutoDataParallel()]
             passes += [InferType(), FoldConstant(), DeadCodeElimination(), InlineBackward()]
+            #passes += [InferType(), FoldConstant(), DeadCodeElimination()]
             seq = RAFSequential(passes, name="with_autodiff")
             mod = seq(mod)
+            #print("mod after autodiff is \n ", mod)
+            #assert False
             inputs = _get_func_inputs(record, args, kwargs)
             inputs = inputs + [get_symbol_handle(dy)]
             out = inline(mod["main"], inputs)

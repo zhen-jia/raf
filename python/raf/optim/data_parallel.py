@@ -44,7 +44,9 @@ def with_data_parallel(model):
             comm = dist.get_communicator()
             record = self.model._internal(*args, **kwargs)
             mod = record.mod
-
+            #if comm.rank == 0 :
+            #    print("mod is \n", mod)
+            #assert False
             # TODO: Refactor AutoDataParallel to let it work on the IR after InlineBackward
             # so that it can be applied here.
             # if dcfg.enable_data_parallel:

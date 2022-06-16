@@ -96,6 +96,9 @@ def trace_model(model, shape_dict):
 
         with torch.no_grad():
             model.to(device=device)
+#              for n, p in model.named_parameters():
+#                  print(" name is ", n , "shape is ", p.shape )
+#              print("state_dict is", model.state_dict())
             scripted_model = torch.jit.trace(model, tuple(example_inputs)).eval()
 
         if device.startswith("cuda"):
@@ -162,10 +165,21 @@ def from_pytorch(model, shape_dict, model_file=None, hash_file=None):
     relay_mod, relay_params = relay.frontend.from_pytorch(scripted_model, shape_list)
     meta_mod = FromRelay()(relay_mod)
     meta_params = OrderedDict()
+    #aux_params = OrderedDict()
+    #for n, p in model.named_parameters():
+    #    print("param name is ", n)
     for var in relay_mod["main"].params:
         name = var.name_hint
         if name in relay_params:
+            #print("name is ", name , "validate_relay_param_name is", validate_relay_param_name(name))
+            #  if "masked_bias" in name:
+                #  aux_params[validate_relay_param_name(name)] = ndarray(relay_params[name].numpy())
+            #  else:
             meta_params[validate_relay_param_name(name)] = ndarray(relay_params[name].numpy())
     # relay_params may contain unused parameters, which are not present in meta_params
     assert len(meta_params) <= len(relay_params)
+    #print(" meta_params are ", meta_params)
+    #for k in meta_params.keys():
+    #    print(" k is", k, "requires_grad",meta_params[k].requires_grad)
+    #  print("+++++++ aux_params are\n", aux_params) 
     return FrameworkModel(SwitchTrainOp(True)(meta_mod), meta_mod, meta_params, {})

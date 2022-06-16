@@ -27,6 +27,8 @@ class GradientPartitioner : public ExprMutator {
   GradientPartitioner(int opt_level, int n_part, int64_t bucket_size, const Function& func)
       : opt_level_(opt_level), n_part_(n_part), bucket_size_(bucket_size), func_(func) {
     // Build the var to expr map for the ANF.
+    /*std::cout << "in partition gradient, the func is \n " << PrettyPrint(func_) << " \n"
+              << std::flush;*/
     Map<Var, Expr> var_to_expr;
     auto ell = ExplicitLetList::make(func->body);
     for (size_t i = 0; i < ell->vars.size(); ++i) {
@@ -52,17 +54,22 @@ class GradientPartitioner : public ExprMutator {
     }
     auto grad_fields = Downcast<Tuple>(grads)->fields;
     for (auto field : grad_fields) {
-      CHECK(field->IsInstance<VarNode>())
-          << "Expected a var in the gradient tuple, but got " << field->GetTypeKey();
-      grads_.Set(Downcast<Var>(field), Expr());
+      /*CHECK(field->IsInstance<VarNode>())
+      << "Expected a var in the gradient tuple, but got " << field->GetTypeKey();
+*/
+      if (field->IsInstance<VarNode>()) {
+        grads_.Set(Downcast<Var>(field), Expr());
+        last_all_reduce_ = Downcast<Var>(field);
+      }
     }
-    last_all_reduce_ = Downcast<Var>(grad_fields[grad_fields.size() - 1]);
+    //last_all_reduce_ = Downcast<Var>(grad_fields[grad_fields.size() - 1]);
 
     scopes_.emplace_back(new LetList);
   }
 
   /*! \brief Partition the parameters according to the parameter group. */
   Function Partition(int rank) {
+    //if (rank == 0) std::cout << "in partition gradient, the func is \n " << PrettyPrint(func_) << " \n" << std::flush;
     if (grads_.empty()) {  // No gradients to be partitioned.
       return func_;
     }
@@ -90,16 +97,19 @@ class GradientPartitioner : public ExprMutator {
         // Replace gradients with sliced ones.
         Array<Expr> fields;
         for (auto field : Downcast<Tuple>(value)->fields) {
-          auto var_node = field.as<VarNode>();
-          CHECK(var_node != nullptr);
-          auto var = GetRef<Var>(var_node);
-          if (grads_.count(var) > 0) {
-            CHECK(grads_[var].defined())
-                << "Internal error: gradient " << var << " does not map to the sliced one";
-            fields.push_back(grads_[var]);
-          } else {
-            fields.push_back(field);
+          if (field->IsInstance<VarNode>()) {
+            auto var_node = field.as<VarNode>();
+            auto var = GetRef<Var>(var_node);
+            if (grads_.count(var) > 0) {
+              CHECK(grads_[var].defined())
+                  << "Internal error: gradient " << var << " does not map to the sliced one";
+              fields.push_back(grads_[var]);
+              continue;
+            }
           }
+          //  else {
+          fields.push_back(field);
+          //  }
         }
         scope->Push(curr_var, Tuple(fields));
       } else {

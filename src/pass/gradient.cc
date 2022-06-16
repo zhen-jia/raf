@@ -634,10 +634,14 @@ struct ReverseAD : public ExprVisitor {
     Array<Expr> grads;
     for (const Var& var : targets) {
       const VarNode* var_node = var.operator->();
+      std::cout << "------- var in MakeClosureRet is " << PrettyPrint(var) << '\n' << std::flush;
       std::vector<Expr> var_grads(tuple_grads[var_node].begin(), tuple_grads[var_node].end());
       if (tuple_length.count(var_node)) {
+      std::cout << " MakeClosureRet is if tuple_length \n" <<std::flush;
         for (Expr& expr : var_grads) {
+          std::cout << " MakeClosureRet is if tuple_length enter for \n" << std::flush;
           if (!expr.defined()) {
+          std::cout << " MakeClosureRet is if tuple_length enter for expr not defined \n" << std::flush;
             // TODO (janimesh) - When is this if condition is satisfied? Should this be ZeroGrad or
             // NoGrad?
             expr = MakeConstant(NoGradValue::make());
@@ -645,15 +649,19 @@ struct ReverseAD : public ExprVisitor {
         }
         grads.push_back(adjoint_ll_->Push(Tuple(var_grads)));
       } else {
+          std::cout << " MakeClosureRet is  tuple_length do not have var \n" << std::flush;
         CHECK_EQ(var_grads.size(), 1);
         if (var_grads[0].defined()) {
+      std::cout << " var grad is " << PrettyPrint(var_grads[0]) << '\n' << std::flush;
           grads.push_back(var_grads[0]);
         } else if (!requires_grads_map_[var.get()]) {
           // No grad required.
+          std::cout << " MakeClosureRet no grad \n" << std::flush;
           grads.push_back(MakeConstant(NoGradValue::make()));
         } else {
           // This means that we need the gradient but nobody use this variable. This can happen in
           // Normalizing the if conditions. To handle such scenario, we can use actualy zero values.
+          std::cout << " MakeClosureRet zero grad \n" << std::flush;
           grads.push_back(adjoint_ll_->Push(MakeZero(var)));
         }
       }

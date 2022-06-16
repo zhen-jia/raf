@@ -182,8 +182,10 @@ def with_lans(
                 dcfg = dist.get_config()
                 comm = dist.get_communicator()
                 self.params = {}
+                print("+++++++ in Lans build")
                 for name, param in self.model.state().items():
-                    if param.requires_grad is True:
+                    print(" name is ", name, "dtype is ", param.dtype)
+                    if param.requires_grad is True:         
                         if device is None:
                             device = param.device
                         else:
