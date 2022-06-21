@@ -881,9 +881,10 @@ IRModule VMCompiler::OptimizeModule(const IRModule& mod, const DeviceMap& device
         // if NCCL collectives are executed in parallel, see e.g.
         // https://github.com/NVIDIA/nccl/issues/522, https://github.com/NVIDIA/nccl/issues/195).
         // Thus currently distributed learning and the multi-stream passes are mutually exclusive.
-        pass_seqs.push_back(pass::DataParallelSchedule());
-        pass_seqs.push_back(pass::AnnotateCollectiveOps());
-        pass_seqs.push_back(pass::EnforceSync());
+       // pass_seqs.push_back(pass::DataParallelSchedule());
+       // pass_seqs.push_back(pass::AnnotateCollectiveOps());
+       // pass_seqs.push_back(pass::EnforceSync());
+        pass_seqs.push_back(pass::ToANormalForm());
       } else {
         auto policy_name =
             pass_ctx->GetConfig<tvm::String>("raf.stream_schedule.policy", "sequential");

@@ -54,7 +54,7 @@ def with_data_parallel(model):
                 passes.append(InferType())
                 passes.append(
                     PartitionGradient(
-                        dcfg.zero_opt_level, comm.size, comm.rank, dcfg.group_bucket_size
+                        dcfg.zero_opt_level, comm.size, comm.rank, 1 #dcfg.group_bucket_size
                     )
                 )
                 seq = RAFSequential(passes, name="with_data_parallel")

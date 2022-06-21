@@ -251,18 +251,19 @@ def with_lans(
                         name, p, w, m, v = self.params[param]
                         if "float" not in w.dtype:
                             continue
-
+                        if self.dtype != "float32":
+                            dxi = _op.cast(dxi, "float32")
                         g_list.append(dxi)
                         x_list.append(w)
                         m_list.append(m)
                         v_list.append(v)
                         ntensor += 1
 
-                if self.dtype != "float32":
-                    fp32_g = _op.group_cast(g_list, "float32")
-                    g_list = []
-                    for i in range(ntensor):
-                        g_list.append(fp32_g[i])
+                #if self.dtype != "float32":
+                #    fp32_g = _op.group_cast(g_list, "float32")
+                #    g_list = []
+                #    for i in range(ntensor):
+                #        g_list.append(fp32_g[i])
 
                 tensor_list = g_list + x_list + m_list + v_list
                 output_list = _op.lans(
