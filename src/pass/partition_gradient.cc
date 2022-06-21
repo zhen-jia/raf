@@ -257,11 +257,12 @@ class GradientPartitioner : public ExprMutator {
     }
 
     grad_var = GenPadCall(scope, grad_var);
-    grad_var = scope->Push(Call(split_op, {grad_var, MakeConstant(ScalarValue::make(n_part_)),
-                                           MakeConstant(ScalarValue::make(0))}));
+    //grad_var = scope->Push(Call(split_op, {grad_var, MakeConstant(ScalarValue::make(n_part_)),
+    //                                       MakeConstant(ScalarValue::make(0))}));
 
     if (opt_level > 1) {
       auto compute = Downcast<Constant>(GetNArg(allreduce_expr, 1));
+      grad_var = scope->Push(Tuple({grad_var}));
       auto reduce_scatter_var = scope->Push(Call(reduce_scatter_op, {grad_var, compute}));
       if (divide_expr.defined()) {
         // update the divide op args
